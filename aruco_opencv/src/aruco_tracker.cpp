@@ -20,6 +20,7 @@
 
 #include <mutex>
 #include <chrono>
+#include <algorithm>
 
 #include <opencv2/aruco.hpp>
 #include <opencv2/calib3d.hpp>
@@ -436,6 +437,15 @@ protected:
     cv::aruco::detectMarkers(
       cv_ptr->image, dictionary_, marker_corners, marker_ids,
       detector_parameters_);
+    bool anynan = std::any_of(marker_corners.begin(), marker_corners.end(),
+        [this](std::vector<cv::Point2f>& corners) {
+            return std::any_of(corners.begin(), corners.end(),
+                [this](cv::Point2f& pt) {
+                    bool isnan = std::isnan(pt.x) || std::isnan(pt.y);
+                    if (isnan) RCLCPP_INFO_STREAM(get_logger(), "detectMarkers found nan: " << pt.x << ", " << pt.y);
+                    return isnan;
+            });
+    });
 
     int n_markers = marker_ids.size();
     std::vector<cv::Vec3d> rvec_final(n_markers), tvec_final(n_markers);
@@ -452,13 +462,27 @@ protected:
         cv::Range(0, n_markers), [&](const cv::Range & range) {
           for (size_t i = range.start; i < range.end; i++) {
             int id = marker_ids[i];
-
+            if (marker_corners[i].size() < 4) {
+                RCLCPP_INFO_STREAM(get_logger(), "got only " << marker_corners[i].size() << " need at least 4");
+                continue;
+            }
             cv::solvePnP(
               marker_obj_points_, marker_corners[i], camera_matrix_, distortion_coeffs_,
               rvec_final[i], tvec_final[i], false, cv::SOLVEPNP_IPPE_SQUARE);
 
+
+            bool anynan = std::any_of(rvec_final.begin(), rvec_final.end(),
+                [this](cv::Vec3d& pt) {
+                    bool isnan = std::isnan(pt(0)) || std::isnan(pt(1)) || std::isnan(pt(2));
+                    if (isnan) RCLCPP_INFO_STREAM(get_logger(), "solvePnP: found nan: " << pt(0) << ", " << pt(1) << ", " << pt(2));
+                    return isnan;
+                    });
+                geometry_msgs::msg::Pose pose = convert_rvec_tvec(rvec_final[i], tvec_final[i]);
+                if (std::isnan(pose.position.x) || std::isnan(pose.position.y) || std::isnan(pose.position.z))
+                    RCLCPP_INFO_STREAM(get_logger(), "convert: found nan: " << pose.position.x
+                    << pose.position.y << pose.position.z);
             detection.markers[i].marker_id = id;
-            detection.markers[i].pose = convert_rvec_tvec(rvec_final[i], tvec_final[i]);
+            detection.markers[i].pose = pose;
           }
         });
 

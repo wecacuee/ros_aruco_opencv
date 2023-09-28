@@ -25,6 +25,7 @@ target_link_libraries(${PROJECT_NAME}
   opencv_aruco
   ${YAML_CPP_LIBRARIES}
 )
+set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD 14)
 ament_target_dependencies(${PROJECT_NAME}
   aruco_opencv_msgs
   rclcpp_components
